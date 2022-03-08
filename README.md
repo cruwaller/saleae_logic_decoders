@@ -1,2 +1,2 @@
-# saleae_logic_decoders
-Decoders for Saleae Logic software
+# Saleae Logic Decoders
+[Extensions](https://support.saleae.com/extensions/) for [Saleae logic analyser](https://www.saleae.com/).

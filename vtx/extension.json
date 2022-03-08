@@ -1,0 +1,17 @@
+{
+  "name": "VTX decoders",
+  "apiVersion": "1.0.0",
+  "author": "Petri Honkala",
+  "version": "0.0.1",
+  "description": "Decoders for VTX serial protocols",
+  "extensions": {
+    "VTX Tramp decoder": {
+      "type": "HighLevelAnalyzer",
+      "entryPoint": "tramp.TrampHla"
+    },
+    "VTX SmartAudio decoder": {
+      "type": "HighLevelAnalyzer",
+      "entryPoint": "smartaudio.SmartAudioHla"
+    }
+  }
+}
