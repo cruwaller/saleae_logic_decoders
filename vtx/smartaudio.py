@@ -50,7 +50,7 @@ class SmartAudio:
     def res_get(self, frame, info, bit=None):
         if bit is not None:
             # calc bit timing:
-            offset = self._bit_time * (1 + bit[0])
+            offset = self._bit_time * (1 + bit[0])  # 1 start bit
             duration = self._bit_time * (1 + bit[1] - bit[0])
             start = self._rxPacket[frame[0]].start_time + offset
             end = start + duration
