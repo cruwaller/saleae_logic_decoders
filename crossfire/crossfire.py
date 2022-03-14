@@ -1,9 +1,6 @@
-from pydoc import resolve
-from random import choices
-from tarfile import LENGTH_LINK
 from typing import Any, Union, List
 from saleae.analyzers import HighLevelAnalyzer, AnalyzerFrame, StringSetting, NumberSetting, ChoicesSetting
-from saleae.data.timing import GraphTimeDelta
+from saleae.data.timing import GraphTimeDelta, GraphTime
 from enum import Enum
 import const
 import msp
@@ -282,10 +279,25 @@ class Crsf:
         DATA = 3
         CRC = 4
 
-    def __init__(self) -> None:
+    def __init__(self, rc_rate, parsing_type) -> None:
         self.clear()
         self._bit_time = 1. / self.BAUDRATE
-        self._time_to_clear = GraphTimeDelta(20. * self._bit_time)
+        self._time_to_clear = GraphTimeDelta(30. * self._bit_time)
+        self._first_packet_time = None
+        self._rc_total = 0
+        self._rc_total_missed = 0
+        if rc_rate:
+            self._rc_rate_inv = 1. / rc_rate
+            print(f"RC timing: {self._rc_rate_inv}s")
+        else:
+            self._rc_rate_inv = 0
+        self._rc_last_valid = None
+        self._output_missing_rc = parsing_type == "Missing RC"
+
+        # Temporary values to avoid Logic software issue
+        self._byte_sync = None
+        self._byte_len = None
+        self._byte_command = None
 
         global CRSF_FRAME_PARSERS
         CRSF_FRAME_PARSERS.update({
@@ -306,7 +318,7 @@ class Crsf:
         self.updated = True
         self._bit_time = ((frame.end_time - frame.start_time) / 9.5)
         # print(f"bit time: {self._bit_time}, baud {1./float(self._bit_time)}")
-        self._time_to_clear = GraphTimeDelta(20. * float(self._bit_time))
+        self._time_to_clear = GraphTimeDelta(30. * float(self._bit_time))
 
     def int_get(self, frame):
         return int.from_bytes(frame.data['data'], "little")
@@ -377,8 +389,42 @@ class Crsf:
             extension += float(bit_time)
         return res
 
+    # 2022-03-14T08:29:40.041935920000Z
+    # 2022-03-14T08:29:40.041935920000Z
+    # 2022-03-14T08:29:40.042935920000Z
+
+    def missing_rc_packet_check(self, start_time):
+        self._rc_total += 1
+        result = []
+        rc_rate_inv = self._rc_rate_inv
+        last = self._rc_last_valid
+        if rc_rate_inv and last is not None:
+            diff = float(start_time - last)
+            if (1.5 * rc_rate_inv) <= diff:
+                missed = int((diff + rc_rate_inv / 2) // rc_rate_inv) - 1
+                self._rc_total_missed += missed
+                #print(f"missed {missed}, from 1st {float(last - self._first_packet_time):.6f}, "
+                #      f"missing: {self._rc_total_missed} of {self._rc_total}")
+                if self._output_missing_rc:
+                    for idx in range(missed):
+                        # Calculate missed slot
+                        last += GraphTimeDelta(rc_rate_inv)
+                        # Frames must be ordered in time!!
+                        result.append(AnalyzerFrame(
+                            "crsf",
+                            last,
+                            last + GraphTimeDelta(20. / 1E6), # 30us
+                            {'decoded': f"MISSING.{idx+1}"}))
+        # This is a workaround. Logic requires AnalyzerFrames to be in ordered (time domain)
+        if self._output_missing_rc:
+            result.append(self._byte_sync)
+            result.append(self._byte_len)
+            result.append(self._byte_command)
+        self._rc_last_valid = start_time
+        return result
+
     def parser_channels_packed(self, data: List, res_gen, offset:int=3, bits_per_ch:int=11, channel:int=0):
-        res = []
+        res = self.missing_rc_packet_check(self._rxPacket[0].start_time)
         if len(data) == 9:
             # ELRS protocol message (length = 9B)
             ch_bytes = 4 * 12 // 8
@@ -387,11 +433,12 @@ class Crsf:
             res.extend(self.parser_channels(data[ch_bytes:], res_gen, offset, bits_per_ch=3, channel=4))
             return res
         # CRSF v2 protocol message (length = 22B)
-        return self.parser_channels(data, res_gen, offset, bits_per_ch, channel)
+        res.extend(self.parser_channels(data, res_gen, offset, bits_per_ch, channel))
+        return res
 
     def parser_channels_packed_susbset(self, data: List, res_gen, offset:int=3):
         # CRSF v3 protocol message (variable length)
-        res = []
+        res = self.missing_rc_packet_check(self._rxPacket[0].start_time)
         config_byte = self._rxPacket[offset]
         start_ch = config_byte & 0x1F
         bits_per_ch = [10, 11, 12, 13][(config_byte >> 5) & 0x3]
@@ -407,15 +454,20 @@ class Crsf:
         result = []
         frame = self.data_get()[2:-1]  # Skip hdr bytes (2) and crc (1)
         frame_type = frame[0]
-        result.append(self.res_get((2, 2), const.CRSF_FRAMETYPE_2_NAME(frame_type)))
+        self._byte_command = self.res_get((2, 2), const.CRSF_FRAMETYPE_2_NAME(frame_type))
+        if not self._output_missing_rc:
+            result.append(self._byte_command)
         # Parse data if parser defined
         parser = CRSF_FRAME_PARSERS.get(frame_type, self.parser_default)
         result.extend(parser(frame[1:], self.res_get, 3))  # skip type
         return result
 
     def process(self, frame: AnalyzerFrame) -> List[AnalyzerFrame]:
+        if self._first_packet_time is None:
+            self._first_packet_time = frame.start_time
+            # print(f"First packet at {frame.start_time}")
         # reset if too long from last packet
-        if self._rxPacket and self._time_to_clear < (frame.end_time - self._rxPacket[-1].end_time):
+        if self._rxPacket and self._time_to_clear < (frame.start_time - self._rxPacket[-1].end_time):
             self.clear()
         result = []
         data = self.int_get(frame)
@@ -429,11 +481,15 @@ class Crsf:
                     data == const.CRSF_ADDRESS_CRSF_TRANSMITTER or \
                     data == const.CRSF_SYNC_BYTE:
                 self._state = self.State.LENGTH
-                result.append(self.res_get(frame, "SYNC"))
+                self._byte_sync = self.res_get(frame, "SYNC")
+                if not self._output_missing_rc:
+                    result.append(self._byte_sync)
             else:
                 self.clear()
         elif self._state == self.State.LENGTH:
-            result.append(self.res_get(frame, "LEN"))
+            self._byte_len = self.res_get(frame, "LEN")
+            if not self._output_missing_rc:
+                result.append(self._byte_len)
             if const.CRSF_FRAME_HEADER_BYTES <= data <= const.CRSF_PAYLOAD_SIZE_MAX:
                 self._len_in = const.CRSF_FRAME_START_BYTES + data - 1
                 self._state = self.State.DATA
@@ -458,11 +514,15 @@ class CrossfireHla(HighLevelAnalyzer):
             'format': '{{data.decoded}}'
         }
     }
+    exp_rc_rate = NumberSetting(min_value=0, max_value=2000)
+    parsing_type = ChoicesSetting(['Missing RC', 'Content'])
 
     def __init__(self) -> None:
         ''' Initialize HLA. '''
         print("========== CRSF ==========")
-        self.proto = Crsf()
+        print(f"Expected RC rate: {self.exp_rc_rate}")
+        print(f"Parsin type: '{self.parsing_type}'")
+        self.proto = Crsf(self.exp_rc_rate, self.parsing_type)
 
     def decode(self, frame: AnalyzerFrame) -> List[AnalyzerFrame]:
         '''
