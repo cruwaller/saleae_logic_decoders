@@ -1,0 +1,13 @@
+{
+  "name": "MSP Serial Decoder",
+  "apiVersion": "1.0.0",
+  "author": "Petri Honkala",
+  "version": "0.0.1",
+  "description": "Decoder for MSP serial protocol",
+  "extensions": {
+    "MSP decoder": {
+      "type": "HighLevelAnalyzer",
+      "entryPoint": "msp.MspHla"
+    }
+  }
+}
