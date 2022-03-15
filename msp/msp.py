@@ -2,6 +2,7 @@ from typing import Any, Union, List
 from saleae.analyzers import HighLevelAnalyzer, AnalyzerFrame, StringSetting, NumberSetting, ChoicesSetting
 from saleae.data.timing import GraphTimeDelta, GraphTime
 import enum
+import struct
 from datetime import datetime
 import msp_const as const
 
@@ -97,6 +98,8 @@ class MspHla(HighLevelAnalyzer):
             return [self._frame_info_with_times_get(
                     payload[0].start_time, payload[-1].end_time, "PAYLOAD")]
         for size, vars in content:
+            if not payload:
+                break
             value = 0
             start_time = payload[0].start_time
             if not size:
@@ -113,19 +116,23 @@ class MspHla(HighLevelAnalyzer):
             else:
                 end_time = payload[size-1].end_time
                 for idx in range(size):
-                    value <<= 8
-                    value += self._data_to_int(payload[idx])
+                    value += self._data_to_int(payload[idx]) << (idx * 8)
             if type(vars) == str:
-                value = vars
+                if "{" in vars:
+                    #if "{:f" in vars:
+                    #    print(f"convert {value} to float: ")
+                    #    value = struct.unpack("f", struct.pack('I', value))[0]
+                    #    print(value)
+                    value = vars.format(value)
+                else:
+                    value = vars
             elif type(vars) == dict:
                 value = vars.get(value, "ERROR")
             elif type(vars) == list:
                 value = vars[value]
             result.append(self._frame_info_with_times_get(start_time, end_time, value))
-
+            # Remove handled data
             payload = payload[size:]
-            if not payload:
-                break
         return result
 
     # -------------------------- MSP v1 parsing -------------------
