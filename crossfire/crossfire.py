@@ -270,8 +270,6 @@ CRSF_FRAME_PARSERS = {
 
 class Crsf:
     BAUDRATE    = 400000
-    SYNC_BYTE   = 0x0F
-    MSG_SIZE    = 15
 
     class State(Enum):
         SYNC = 0
