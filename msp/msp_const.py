@@ -1,3 +1,4 @@
+from typing import Any
 
 MSP_CRC_POLY = 0xD5
 
@@ -276,12 +277,67 @@ def MSPv1_function_get(id, type=None):
         return MSPv1_ELRS_FUNC_TO_NAME.get(id, f"0x{id:02X} ??")
     return MSPv1_FUNC_TO_NAME.get(id, f"0x{id:02X} ??")
 
+class StoreVal:
+    def __init__(self, value = None) -> None:
+        self.__val = value
+    @property
+    def value(self) -> Any:
+        if self.__val is None:
+            raise ValueError("Value not set!")
+        return self.__val
+    @value.setter
+    def value(self, val):
+        self.__val = val
+
 
 MSPv1_MSG_CONTENT = {
-    2: [ # "MSP_FC_VARIANT",
+    1: [ # MSP_API_VERSION
+        (1, "Protocol Ver"),
+        (1, "Major"),
+        (1, "Minor"),
+    ],
+    2: [ # MSP_FC_VARIANT
         (-1, str),
     ],
-    88: [ # "MSP_VTX_CONFIG",
+    3: [ # MSP_FC_VERSION
+        (1, "Major"),
+        (1, "Minor"),
+        (1, "Patch"),
+    ],
+    5: [ # MSP_BUILD_INFO
+        (11, str, "data: "),
+        (8, str, "time: "),
+        (7, str, "SHA: "),
+    ],
+    10: [ # MSP_NAME
+        (-1, str, "Name: "),
+    ],
+    11: [ # MSP_SET_NAME
+        (-1, str, "Name: "),
+    ],
+    46: [ # MSP_LED_COLORS
+        (2, "H: {}"),
+        (1, "S: {}"),
+        (1, "V: {}"),
+    ] * 16,
+    47: [ # MSP_SET_LED_COLORS
+        (2, "H: {}"),
+        (1, "S: {}"),
+        (1, "V: {}"),
+    ] * 16,
+    48:   # MSP_LED_STRIP_CONFIG
+        [ (4, "Config: {:#X}") ] * 32 +
+        [
+            (1, "Advanced: {}"),
+            (1, "Profile: {}"),
+        ]
+    ,
+    49: [ # MSP_SET_LED_STRIP_CONFIG
+        (1, "Index: {}"),
+        (4, "Config: {:#X}"),
+        (1, "Profile: {}"),
+    ],
+    88: [ # MSP_VTX_CONFIG
         (1, {0:"VTXDEV_UNSUPPORTED", 1:"VTXDEV_RTC6705", 2:"VTXDEV_SMARTAUDIO", 3:"VTXDEV_TRAMP", 4:"VTXDEV_UNKNOWN"}),
         (1, "Band"),
         (1, "Channel"),
@@ -290,14 +346,13 @@ MSPv1_MSG_CONTENT = {
         (2, "Freq {}"),
         (1, "Ready"),
         (1, "Low Power Disarm"),
-
         (2, "Pit Mode Freq: {}"),
         (1, "VTX Table Available"),
         (1, "Bands Count"),
         (1, "Channels Count"),
         (1, "Power Levels Count"),
     ],
-    89: [ # "MSP_SET_VTX_CONFIG",
+    89: [ # MSP_SET_VTX_CONFIG
         (2, "Freq: {}"),
         (1, "Power: {}"),
         (1, "Pit Mode: {}"),
@@ -306,27 +361,41 @@ MSPv1_MSG_CONTENT = {
         (1, "New Band: {}"),
         (1, "New Channel: {}"),
         (2, "New Freq: {}"),
-
         (1, "Bands Count: {}"),
         (1, "Channels Count: {}"),
         (1, "Power Levels Count: {}"),
         (1, "Clear VTX Table: {}"),
     ],
-    101: [ # "MSP_STATUS",
+    101: [ # MSP_STATUS
         (2, "PID us: {}"),
         (2, "I2C errors: {}"),
-        (2, "Sensors mask: 0x{:X}"),
-        (4, "Flight mode flags: 0x{:X}"),
+        (2, "Sensors mask: {:#X}"),
+        (4, "Flight Mode Flags: {:#X}"),
         (1, "PID Profile Idx"),
         (2, "System Load Avg: {}"),
         (2, "Gyro Cycle Time: {}"),
-        (1, "Flight Mode Byte Cnt"),
-        (0, "TBD, Variable size"),
+        (1, "Flight Mode Cnt"),
+        (0, "Flight Mode {:#X}", StoreVal),
         (1, "Arming Disabled Flags Count"),
-        (4, "Arming Disabled Flags: 0x{:X}"),
+        (4, "Arming Disabled Flags: {:#X}"),
         (1, "Config State Flags"),
     ],
-    105:  # "MSP_RC",
+    150: [ # MSP_STATUS_EX
+        (2, "PID us: {}"),
+        (2, "I2C errors: {}"),
+        (2, "Sensors mask: {:#X}"),
+        (4, "Flight Mode Flags: {:#X}"),
+        (1, "PID Profile Idx"),
+        (2, "System Load Avg: {}"),
+        (1, "PID Profile Count: {}"),
+        (1, "Rate Profile Idx: {}"),
+        (1, "Flight Mode Cnt"),
+        (0, "Flight Mode {:#X}", StoreVal),
+        (1, "Arming Disabled Flags Count"),
+        (4, "Arming Disabled Flags: {:#X}"),
+        (1, "Config State Flags"),
+    ],
+    105:  # MSP_RC
         [(2, f"CH{x} {{:d}}") for x in range(18)]
     ,
     182: [ # MSP_DISPLAYPORT
@@ -334,7 +403,7 @@ MSPv1_MSG_CONTENT = {
         (1, "row"),
         (1, "col"),
         (1, "attr"),
-        (-1, str),
+        (-1, str, "Value: "),
     ],
 }
 
@@ -348,18 +417,10 @@ MSPv1_ELRS_MSG_CONTENT = {
         (1, "rf mode"),
         (-1, str),  # sha
     ],
-    102: [  # ELRS_HANDSET_MIXER
-        (1, "mixer index"), (1, "index"), (1, "inverted"), (1, "scale"),
-        (1, "mixer index"), (1, "index"), (1, "inverted"), (1, "scale"),
-        (1, "mixer index"), (1, "index"), (1, "inverted"), (1, "scale"),
-        (1, "mixer index"), (1, "index"), (1, "inverted"), (1, "scale"),
-        (1, "mixer index"), (1, "index"), (1, "inverted"),
-        (1, "mixer index"), (1, "index"), (1, "inverted"),
-        (1, "mixer index"), (1, "index"), (1, "inverted"),
-        (1, "mixer index"), (1, "index"), (1, "inverted"),
-        (1, "mixer index"), (1, "index"), (1, "inverted"),
-        (1, "mixer index"), (1, "index"), (1, "inverted"),
-    ],
+    102:  # ELRS_HANDSET_MIXER
+        [ (1, "mixer index"), (1, "index"), (1, "inverted"), (1, "scale"), ] * 4 +
+        [ (1, "mixer index"), (1, "index"), (1, "inverted") ] * 8
+    ,
     104: [  # ELRS_HANDSET_ADJUST_MIN
         (1, "index"),
         (2, "value"),

@@ -101,11 +101,20 @@ class MspHla(HighLevelAnalyzer):
 
     def parse_message_content(self, function, payload):
         result = []
+        last_value = const.StoreVal()
         content = const.MSPv1_function_content_get(function, self._type_v1)
         if not content:
             return [self._frame_info_with_times_get(
                     payload[0].start_time, payload[-1].end_time, "PAYLOAD")]
-        for size, fmt in content:
+        for _data in content:
+            try:
+                size, fmt, name = _data
+                if size == 0 and name == const.StoreVal:
+                    # print(f"Last value for {fmt} is {last_value.value}")
+                    size = last_value.value
+            except ValueError:
+                size, fmt = _data
+                name = ""
             if not payload:
                 break
             if not size:
@@ -113,43 +122,47 @@ class MspHla(HighLevelAnalyzer):
             if size < 0:
                 # rest of the payload...
                 size = len(payload)
-                if fmt == str:
-                    value = "STR: "
-                    for d in payload:
-                        # convert bytes to string
-                        value += chr(self._data_to_int(d))
-                else:
-                    value = "PAYLOAD"
+
+            # Read the data
+            if fmt == str:
+                value = ""
+                convert = lambda b,i: chr(b)
             else:
                 value = 0
-                # read a value
-                for idx in range(size):
-                    value += self._data_to_int(payload[idx]) << (idx * 8)
-                # check the format
-                if type(fmt) == str:
-                    if ":d" in fmt:
-                        # Convert to signed
-                        bits = 8 * size
-                        msb = 0x1 << (bits - 1)
-                        if value & msb:
-                            value -= (1 << bits)
-                    if "{" in fmt:
-                        # Requires format
-                        value = fmt.format(value)
-                    else:
-                        value = fmt
-                elif type(fmt) == dict:
-                    value = fmt.get(value, "ERROR")
-                elif type(fmt) == list:
-                    try:
-                        value = fmt[value]
-                    except IndexError:
-                        value = "ERROR"
+                convert = lambda b,i: b << (i * 8)
+            # read a value
+            for idx in range(size):
+                byte = self._data_to_int(payload[idx])
+                value += convert(byte, idx)
+            last_value.value = value
+            # check the format
+            if type(fmt) == str:
+                if ":d" in fmt:
+                    # Convert to signed
+                    bits = 8 * size
+                    msb = 0x1 << (bits - 1)
+                    if value & msb:
+                        value -= (1 << bits)
+                if "{" in fmt:
+                    # Requires format
+                    value = fmt.format(value)
                 else:
-                    value = f"{value}"
+                    value = fmt
+            elif type(fmt) == dict:
+                value = fmt.get(value, "ERROR")
+            elif type(fmt) == list:
+                try:
+                    value = fmt[value]
+                except IndexError:
+                    value = "ERROR"
+            elif fmt == str:
+                # Already in correct format
+                pass
+            else:
+                value = "PAYLOAD"
             start_time = payload[0].start_time
             end_time = payload[size-1].end_time
-            result.append(self._frame_info_with_times_get(start_time, end_time, value))
+            result.append(self._frame_info_with_times_get(start_time, end_time, name + value))
             # Remove handled data
             payload = payload[size:]
         return result
