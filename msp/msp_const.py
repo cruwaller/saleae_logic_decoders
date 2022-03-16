@@ -21,6 +21,11 @@ MSP_TYPE = {
     MSP_TYPE_ERROR: "ERROR",
 }
 
+
+# ----------------------------------------------
+#                   MSP v1
+# ----------------------------------------------
+
 MSPv1_FUNC_TO_NAME = {
     1: "MSP_API_VERSION",
     2: "MSP_FC_VARIANT",
@@ -468,10 +473,83 @@ def MSPv1_function_content_get(func, type=None):
     return MSPv1_MSG_CONTENT.get(func, [])
 
 
+# ----------------------------------------------
+#                   MSP v2
+# ----------------------------------------------
 
 MSPv2_FUNC_TO_NAME = {
 
+    # ----------------------------------------------
+    # ExpressLRS Backpack Protocol Specification v1.1
+    0x0300: "GET BAND/CHANNEL INDEX",
+    0x0301: "SET BAND/CHANNEL INDEX",
+    0x0302: "GET FREQ",
+    0x0303: "SET FREQ",
+    0x0304: "GET RECORDING STATE",
+    0x0305: "SET RECORDING STATE",
+    0x0306: "GET VRX MODE",
+    0x0307: "SET VRX MODE",
+    0x0308: "GET RSSI",
+    0x0309: "GET BATTERY VOLTAGE",
+    0x030A: "GET FIRMWARE",
+    0x030B: "SET BUZZER",
+    0x030C: "SET OSD ELEMENT",
+    # ----------------------------------------------
 }
 
 def MSPv2_function_get(id):
+    if id < 255:
+        return MSPv1_function_get(id)
     return MSPv2_FUNC_TO_NAME.get(id, f"0x{id:04X} ??")
+
+
+MSPv2_MSG_CONTENT = {
+
+    # ----------------------------------------------
+    # ExpressLRS Backpack Protocol Specification v1.1
+
+    0x0300: [ # "GET BAND/CHANNEL INDEX",
+        (1, "Index: {}"),
+    ],
+    0x0301: [ # "SET BAND/CHANNEL INDEX",
+        (1, "Index: {}"),
+    ],
+    0x0302: [ # "GET FREQ",
+        (2, "Freq: {}MHz"),
+    ],
+    0x0303: [ # "SET FREQ",
+        (2, "Freq: {}MHz"),
+    ],
+    0x0304: [ # "GET RECORDING STATE",
+        (1, {0:"OFF", 1:"ON"}, "Recording: "),
+    ],
+    0x0305: [ # "SET RECORDING STATE",
+        (1, {0:"STOP", 1:"START"}, "Recording: "),
+        (2, "Delay: {}s"),
+    ],
+    0x0306: [ # "GET VRX MODE",
+        (1, "Mode: {}"),
+    ],
+    0x0307: [ # "SET VRX MODE",
+        (1, "Mode: {}"),
+    ],
+    0x0308:  # "GET RSSI",
+        [ (1, "Num Antennas: {}") ] + [ (1, "RSSI: -{}") ] * 16
+    ,
+    0x0309: [ # "GET BATTERY VOLTAGE",
+        (2, "Volate: {}mV"),
+    ],
+    0x030A: [ # "GET FIRMWARE",
+        (1, "Size: {}"),
+        (-1, None, "fw field: "),
+    ],
+    0x030B: [ # "SET BUZZER",
+        (2, "Duration: {}ms"),
+    ],
+    # ----------------------------------------------
+}
+
+def MSPv2_function_content_get(func):
+    if func < 255:
+        return MSPv1_function_content_get(func)
+    return MSPv2_MSG_CONTENT.get(func, [])

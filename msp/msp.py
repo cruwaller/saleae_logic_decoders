@@ -99,10 +99,9 @@ class MspHla(HighLevelAnalyzer):
             value += data.pop(0)
         return value
 
-    def parse_message_content(self, function, payload):
+    def parse_message_content(self, content, payload):
         result = []
         last_value = const.StoreVal()
-        content = const.MSPv1_function_content_get(function, self._type_v1)
         if not content:
             return [self._frame_info_with_times_get(
                     payload[0].start_time, payload[-1].end_time, "PAYLOAD")]
@@ -110,7 +109,6 @@ class MspHla(HighLevelAnalyzer):
             try:
                 size, fmt, name = _data
                 if size == 0 and name == const.StoreVal:
-                    # print(f"Last value for {fmt} is {last_value.value}")
                     size = last_value.value
             except ValueError:
                 size, fmt = _data
@@ -212,13 +210,10 @@ class MspHla(HighLevelAnalyzer):
             self._payload.append(frame)
             next_state = self.State.MSP_PAYLOAD
             self._crc_v1 = self._calc_crc_xor(data, self._crc_v1)
-            # info = f"data[{self._payload_rcvd}]"
-            #info = f"0x{data:02X},{data:>3d},{chr(data):>2s}"
-            #result = [self._frame_info_get(frame, info)]
             self._payload_rcvd += 1
             if self._payload_len <= self._payload_rcvd:
-                # TODO: Parse content of the known functions...
-                result.extend(self.parse_message_content(self._msp_v1_function, self._payload))
+                content = const.MSPv1_function_content_get(self._msp_v1_function, self._type_v1)
+                result.extend(self.parse_message_content(content, self._payload))
                 next_state = self.State.MSP_CHECKSUM
         elif self._state == self.State.MSP_CHECKSUM:
             info = ["CRC ERROR", "CRC OK"][data == self._crc_v1]
@@ -246,6 +241,7 @@ class MspHla(HighLevelAnalyzer):
     _payload_v2_rcvd = 0
     msp_v2_func = (0, 0)
     msp_v2_size = (0, 0)
+    _msp_v2_function = -1
     def parse_msp_v2(self, frame: AnalyzerFrame):
         result = []
         next_state = self.State.MSP_IDLE
@@ -267,6 +263,7 @@ class MspHla(HighLevelAnalyzer):
             self._crc_v2 = self._calc_crc(data, self._crc_v2)
             func_id, start = self.msp_v2_func
             func_id += data
+            self._msp_v2_function = func_id
             func = const.MSPv2_function_get(func_id)
             frame.start_time = start
             result = self._frame_info_get(frame, f"Func: {func}")
@@ -288,11 +285,11 @@ class MspHla(HighLevelAnalyzer):
         elif self._state == self.State.MSPv2_PAYLOAD:
             self._payload.append(frame)
             self._crc_v2 = self._calc_crc(data, self._crc_v2)
-            result = self._frame_info_get(frame, f"data[{self._payload_v2_rcvd}]")
             self._payload_v2_rcvd += 1
             next_state = self.State.MSPv2_PAYLOAD
             if self._payload_v2_len <= self._payload_v2_rcvd:
-                # TODO: Parse content of the known functions...
+                content = const.MSPv2_function_content_get(self._msp_v2_function)
+                result.extend(self.parse_message_content(content, self._payload))
                 next_state = self.State.MSPv2_CHECKSUM
         elif self._state == self.State.MSPv2_CHECKSUM:
             info = ["CRC ERROR", "CRC OK"][data == self._crc_v2]
