@@ -37,9 +37,17 @@ class MspHla(HighLevelAnalyzer):
         'info': {'format': '{{data.decoded}}'}
     }
 
+    parsing_type = ChoicesSetting(['Default', 'Custom'])
+
+
     def __init__(self) -> None:
         ''' Initialize HLA. '''
         print("========== MSP ==========")
+        if self.parsing_type == "Custom":
+            print(f"Parsing type: {self.parsing_type}")
+            const.MSP_TYPE[const.MSP_TYPE_ELRS] = "ELRS"
+            print(const.MSP_TYPE)
+
         self._state = self.State.MSP_IDLE
         self._bit_time = 1. / self.BAUDRATE
         self._time_to_clear = GraphTimeDelta(30. * self._bit_time)
@@ -93,43 +101,54 @@ class MspHla(HighLevelAnalyzer):
 
     def parse_message_content(self, function, payload):
         result = []
-        content = const.MSPv1_function_content_get(function)
+        content = const.MSPv1_function_content_get(function, self._type_v1)
         if not content:
             return [self._frame_info_with_times_get(
                     payload[0].start_time, payload[-1].end_time, "PAYLOAD")]
-        for size, vars in content:
+        for size, fmt in content:
             if not payload:
                 break
-            value = 0
-            start_time = payload[0].start_time
             if not size:
                 continue
             if size < 0:
                 # rest of the payload...
-                end_time = payload[-1].end_time
                 size = len(payload)
-                if vars == str:
-                    vars = "STR: "
+                if fmt == str:
+                    value = "STR: "
                     for d in payload:
-                        vars += chr(self._data_to_int(d))
-                    vars += ""
+                        # convert bytes to string
+                        value += chr(self._data_to_int(d))
+                else:
+                    value = "PAYLOAD"
             else:
-                end_time = payload[size-1].end_time
+                value = 0
+                # read a value
                 for idx in range(size):
                     value += self._data_to_int(payload[idx]) << (idx * 8)
-            if type(vars) == str:
-                if "{" in vars:
-                    #if "{:f" in vars:
-                    #    print(f"convert {value} to float: ")
-                    #    value = struct.unpack("f", struct.pack('I', value))[0]
-                    #    print(value)
-                    value = vars.format(value)
+                # check the format
+                if type(fmt) == str:
+                    if ":d" in fmt:
+                        # Convert to signed
+                        bits = 8 * size
+                        msb = 0x1 << (bits - 1)
+                        if value & msb:
+                            value -= (1 << bits)
+                    if "{" in fmt:
+                        # Requires format
+                        value = fmt.format(value)
+                    else:
+                        value = fmt
+                elif type(fmt) == dict:
+                    value = fmt.get(value, "ERROR")
+                elif type(fmt) == list:
+                    try:
+                        value = fmt[value]
+                    except IndexError:
+                        value = "ERROR"
                 else:
-                    value = vars
-            elif type(vars) == dict:
-                value = vars.get(value, "ERROR")
-            elif type(vars) == list:
-                value = vars[value]
+                    value = f"{value}"
+            start_time = payload[0].start_time
+            end_time = payload[size-1].end_time
             result.append(self._frame_info_with_times_get(start_time, end_time, value))
             # Remove handled data
             payload = payload[size:]
@@ -137,6 +156,7 @@ class MspHla(HighLevelAnalyzer):
 
     # -------------------------- MSP v1 parsing -------------------
     _crc_v1 = 0
+    _type_v1 = 0
     _payload_len = 0
     _payload_rcvd = 0
     _msp_v1_function = -1
@@ -146,6 +166,7 @@ class MspHla(HighLevelAnalyzer):
         data = self._data_to_int(frame)
 
         if self._state == self.State.MSP_HEADER_M:
+            self._type_v1 = data
             _type = const.MSP_TYPE.get(data)
             if _type == "ELRS":
                 next_state = self.State.MSP_FLAGS
@@ -169,7 +190,7 @@ class MspHla(HighLevelAnalyzer):
             self._msp_v1_function = data
             self._crc_v1 = self._calc_crc_xor(data, self._crc_v1)
             next_state = self.State.MSP_PAYLOAD if self._payload_len else self.State.MSP_CHECKSUM
-            func = const.MSPv1_function_get(data)
+            func = const.MSPv1_function_get(data, self._type_v1)
             result = self._frame_info_get(frame, f"Func: {func}")
             if func == "MSP_V2_FRAME":
                 # Encapsulated V2 frame...
@@ -187,7 +208,7 @@ class MspHla(HighLevelAnalyzer):
                 result.extend(self.parse_message_content(self._msp_v1_function, self._payload))
                 next_state = self.State.MSP_CHECKSUM
         elif self._state == self.State.MSP_CHECKSUM:
-            info = ["CRC ERROR", "CRC"][data == self._crc_v1]
+            info = ["CRC ERROR", "CRC OK"][data == self._crc_v1]
             result = self._frame_info_get(frame, info)
             next_state = self.State.MSP_IDLE
         # --------------------------------------------
@@ -261,7 +282,7 @@ class MspHla(HighLevelAnalyzer):
                 # TODO: Parse content of the known functions...
                 next_state = self.State.MSPv2_CHECKSUM
         elif self._state == self.State.MSPv2_CHECKSUM:
-            info = ["CRC ERROR", "CRC"][data == self._crc_v2]
+            info = ["CRC ERROR", "CRC OK"][data == self._crc_v2]
             result = self._frame_info_get(frame, info)
             next_state = self.State.MSP_IDLE
 
@@ -280,15 +301,14 @@ class MspHla(HighLevelAnalyzer):
                 next_state = self.State.MSP_START
                 result = self._frame_info_get(frame, "Start")
         elif self._state == self.State.MSP_START:
-            version = const.MSP_VERSION.get(data)
-            if version == "V1":
+            if data == const.MSP_VERSION_V1:
                 next_state = self.State.MSP_HEADER_M
                 self._decode_func = self.parse_msp_v1
-                result = self._frame_info_get(frame, "MSPv1")
-            elif version == "V2":
+            elif data == const.MSP_VERSION_V2:
                 next_state = self.State.MSP_HEADER_X
                 self._decode_func = self.parse_msp_v2
-                result = self._frame_info_get(frame, "MSPv2")
+            version = const.MSP_VERSION.get(data)
+            result = self._frame_info_get(frame, version)
         self.parse_func_end(next_state)
         return result
 

@@ -2,15 +2,22 @@
 MSP_CRC_POLY = 0xD5
 
 MSP_START = ord('$')
+
+MSP_VERSION_V1 = ord('M')
+MSP_VERSION_V2 = ord('X')
 MSP_VERSION = {
-    ord('M'): "V1",
-    ord('X'): "V2",
+    MSP_VERSION_V1: "MSPv1",
+    MSP_VERSION_V2: "MSPv2",
 }
+
+MSP_TYPE_REQ = ord('<')
+MSP_TYPE_RESP = ord('>')
+MSP_TYPE_ERROR = ord('!')
+MSP_TYPE_ELRS = ord('?')  # custom type
 MSP_TYPE = {
-    ord('<'): "REQ",
-    ord('>'): "RESP",
-    ord('!'): "ERROR",
-    ord('?'): "ELRS",
+    MSP_TYPE_REQ: "REQ",
+    MSP_TYPE_RESP: "RESP",
+    MSP_TYPE_ERROR: "ERROR",
 }
 
 MSPv1_FUNC_TO_NAME = {
@@ -246,7 +253,27 @@ MSPv1_FUNC_TO_NAME = {
     249: "MSP_SET_SIGNATURE",
 }
 
-def MSPv1_function_get(id):
+
+MSPv1_ELRS_FUNC_TO_NAME = {
+    # Custom functions
+    1: "ELRS_INT_MSP_PARAMS",
+    100: "ELRS_HANDSET_BASE",
+    101: "ELRS_HANDSET_CALIBRATE",
+    102: "ELRS_HANDSET_MIXER",
+    103: "ELRS_HANDSET_ADJUST",
+    104: "ELRS_HANDSET_ADJUST_MIN",
+    105: "ELRS_HANDSET_ADJUST_MID",
+    106: "ELRS_HANDSET_ADJUST_MAX",
+    107: "ELRS_HANDSET_CONFIGS_LOAD",
+    108: "ELRS_HANDSET_CONFIGS_SAVE",
+    109: "ELRS_HANDSET_TLM_LINK_STATS",
+    110: "ELRS_HANDSET_TLM_BATTERY",
+    111: "ELRS_HANDSET_TLM_GPS",
+}
+
+def MSPv1_function_get(id, type=None):
+    if type == MSP_TYPE_ELRS:
+        return MSPv1_ELRS_FUNC_TO_NAME.get(id, f"0x{id:02X} ??")
     return MSPv1_FUNC_TO_NAME.get(id, f"0x{id:02X} ??")
 
 
@@ -300,7 +327,7 @@ MSPv1_MSG_CONTENT = {
         (1, "Config State Flags"),
     ],
     105:  # "MSP_RC",
-        [(4, f"CH{x} {{:d}}") for x in range(18)]
+        [(2, f"CH{x} {{:d}}") for x in range(18)]
     ,
     182: [ # MSP_DISPLAYPORT
         (1, {0:"Heartbeat", 1:"release", 2:"clear", 3:"write", 4:"draw"}),
@@ -310,7 +337,73 @@ MSPv1_MSG_CONTENT = {
         (-1, str),
     ],
 }
-def MSPv1_function_content_get(func):
+
+MSPv1_ELRS_MSG_CONTENT = {
+    # Custom functions
+    1: [  # ELRS_INT_MSP_PARAMS
+        (1, "rate"),
+        (1, "tlm"),
+        (1, "pwr, current"),
+        (1, "pwr, max"),
+        (1, "rf mode"),
+        (-1, str),  # sha
+    ],
+    102: [  # ELRS_HANDSET_MIXER
+        (1, "mixer index"), (1, "index"), (1, "inverted"), (1, "scale"),
+        (1, "mixer index"), (1, "index"), (1, "inverted"), (1, "scale"),
+        (1, "mixer index"), (1, "index"), (1, "inverted"), (1, "scale"),
+        (1, "mixer index"), (1, "index"), (1, "inverted"), (1, "scale"),
+        (1, "mixer index"), (1, "index"), (1, "inverted"),
+        (1, "mixer index"), (1, "index"), (1, "inverted"),
+        (1, "mixer index"), (1, "index"), (1, "inverted"),
+        (1, "mixer index"), (1, "index"), (1, "inverted"),
+        (1, "mixer index"), (1, "index"), (1, "inverted"),
+        (1, "mixer index"), (1, "index"), (1, "inverted"),
+    ],
+    104: [  # ELRS_HANDSET_ADJUST_MIN
+        (1, "index"),
+        (2, "value"),
+    ],
+    105: [  # ELRS_HANDSET_ADJUST_MID
+        (1, "index"),
+        (2, "value"),
+    ],
+    106: [  # ELRS_HANDSET_ADJUST_MAX
+        (1, "index"),
+        (2, "value"),
+    ],
+    109: [  # ELRS_HANDSET_TLM_LINK_STATS
+        (1, "UL RSSI 1: {}"),
+        (1, "UL RSSI 2: {}"),
+        (1, "UL LQ: {}"),
+        (1, "UL SNR: {:d}"),
+        (1, "active antenna: {}"),
+        (1, "RF Mode: {}"),
+        (1, "UL TX Power: {}"),
+        (1, "DL RSSI: {}"),
+        (1, "DL LQ: {}"),
+        (1, "DL SNR: {:d}"),
+    ],
+    110: [  # ELRS_HANDSET_TLM_BATTERY
+        (2, "Voltage {}"),
+        (2, "Current {}"),
+        (1, "Remaining: {}"),
+        (3, "Capacity: {}"),
+    ],
+    111: [  # ELRS_HANDSET_TLM_GPS
+        (4, "latitude: {:d}"),
+        (4, "longitude: {:d}"),
+        (2, "speed"),
+        (2, "heading"),
+        (2, "altitude"),
+        (1, "satellites"),
+        (1, "pkt_cnt"),
+    ],
+}
+
+def MSPv1_function_content_get(func, type=None):
+    if type == MSP_TYPE_ELRS:
+        return MSPv1_ELRS_MSG_CONTENT.get(id, [])
     return MSPv1_MSG_CONTENT.get(func, [])
 
 
