@@ -58,6 +58,12 @@ def parser_battery_sensor(data: List, res_gen, offset:int=3):
     res.append(res_gen((offset, offset), f"Remaining: {data.pop(0)}%"))
     return res
 
+def parser_heartbeat(data: List, res_gen, offset:int=3):
+    res = []
+    val = __get_value(data, 2)
+    res.append(res_gen((offset, offset+1), f"Address: {val}"))
+    return res
+
 def parser_link_stat(data: List, res_gen, offset:int=3):
     params = [
         ("UL RSSI 1", -1),
@@ -244,6 +250,7 @@ def parser_parameter_displayport_cmd(data: List, res_gen, offset:int=3):
 CRSF_FRAME_PARSERS = {
     const.CRSF_FRAMETYPE_GPS: parser_gps,
     const.CRSF_FRAMETYPE_BATTERY_SENSOR: parser_battery_sensor,
+    const.CRSF_FRAMETYPE_HEARTBEAT: parser_heartbeat,
     const.CRSF_FRAMETYPE_LINK_STATISTICS: parser_link_stat,
     const.CRSF_FRAMETYPE_LINK_STATISTICS_ELRS: parser_link_stat_elrs,
     const.CRSF_FRAMETYPE_RADIO_ID: parser_radio_id,
@@ -367,7 +374,7 @@ class Crsf:
         bits_per_ch_mask = (1 << bits_per_ch) - 1
         value = bits_read = 0
         bit_time = self._bit_time
-        rx_packets = self._rxPacket[offset:(offset + len(data))]  # Ignore CRC
+        rx_packets = self._rxPacket[offset:(offset + len(data) - 1)]  # Ignore CRC
         start_time = rx_packets[0].start_time
         extension = 0
         for packet in rx_packets:
@@ -436,8 +443,9 @@ class Crsf:
 
     def parser_channels_packed_susbset(self, data: List, res_gen, offset:int=3):
         # CRSF v3 protocol message (variable length)
+        res = []
         res = self.missing_rc_packet_check(self._rxPacket[0].start_time)
-        config_byte = self._rxPacket[offset]
+        config_byte = self.int_get(self._rxPacket[offset])
         start_ch = config_byte & 0x1F
         bits_per_ch = [10, 11, 12, 13][(config_byte >> 5) & 0x3]
         res.append(res_gen((offset,offset), f"start: {start_ch}", (0, 4)))
@@ -477,7 +485,8 @@ class Crsf:
         if self._state == self.State.SYNC:
             if data == const.CRSF_ADDRESS_CRSF_RECEIVER or \
                     data == const.CRSF_ADDRESS_CRSF_TRANSMITTER or \
-                    data == const.CRSF_SYNC_BYTE:
+                    data == const.CRSF_SYNC_BYTE or \
+                    data == const.CRSF_ADDRESS_BROADCAST:
                 self._state = self.State.LENGTH
                 self._byte_sync = self.res_get(frame, "SYNC")
                 if not self._output_missing_rc:
