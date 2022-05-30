@@ -374,7 +374,7 @@ class Crsf:
         bits_per_ch_mask = (1 << bits_per_ch) - 1
         value = bits_read = 0
         bit_time = self._bit_time
-        rx_packets = self._rxPacket[offset:(offset + len(data) - 1)]  # Ignore CRC
+        rx_packets = self._rxPacket[offset:(offset + len(data))]
         start_time = rx_packets[0].start_time
         extension = 0
         for packet in rx_packets:
@@ -438,7 +438,7 @@ class Crsf:
             res.extend(self.parser_channels(data[ch_bytes:], res_gen, offset, bits_per_ch=3, channel=4))
             return res
         # CRSF v2 protocol message (length = 22B)
-        res.extend(self.parser_channels(data, res_gen, offset, bits_per_ch, channel))
+        res.extend(self.parser_channels(data[:-1], res_gen, offset, bits_per_ch, channel))
         return res
 
     def parser_channels_packed_susbset(self, data: List, res_gen, offset:int=3):
@@ -450,7 +450,7 @@ class Crsf:
         bits_per_ch = [10, 11, 12, 13][(config_byte >> 5) & 0x3]
         res.append(res_gen((offset,offset), f"start: {start_ch}", (0, 4)))
         res.append(res_gen((offset,offset), f"bits: {bits_per_ch}", (5, 6)))
-        res.extend(self.parser_channels(data, res_gen, offset + 1, bits_per_ch, start_ch))
+        res.extend(self.parser_channels(data[:-1], res_gen, offset + 1, bits_per_ch, start_ch))
         return res
 
     def parser_default(self, data: List, res_gen, offset:int=3):
