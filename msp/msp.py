@@ -51,7 +51,7 @@ class MspHla(HighLevelAnalyzer):
         self._state = self.State.MSP_IDLE
         self._bit_time = 1. / self.BAUDRATE
         self._time_to_clear = GraphTimeDelta(30. * self._bit_time)
-        self._last_packet_time = GraphTime(datetime.utcfromtimestamp(0))
+        self._last_packet_time = None  # GraphTime(datetime.utcfromtimestamp(0))
 
     def _clear(self) -> None:
         self._state = self.State.MSP_IDLE
@@ -323,7 +323,8 @@ class MspHla(HighLevelAnalyzer):
         return result
 
     def decode(self, frame: AnalyzerFrame) -> List[AnalyzerFrame]:
-        if self._time_to_clear < (frame.start_time - self._last_packet_time):
+        if self._last_packet_time is None or \
+                self._time_to_clear < (frame.start_time - self._last_packet_time):
             self._clear()
         # Update last received packet timing
         self._last_packet_time = frame.end_time
