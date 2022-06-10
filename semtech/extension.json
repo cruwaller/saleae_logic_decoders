@@ -1,0 +1,17 @@
+{
+  "name": "Semtech SX12xx SPI Decoder",
+  "apiVersion": "1.0.0",
+  "author": "Petri Honkala",
+  "version": "0.0.1",
+  "description": "Decoder for Semtech SX127x and SX128x radio IC SPI interface",
+  "extensions": {
+    "SX127x SPI Decoder": {
+      "type": "HighLevelAnalyzer",
+      "entryPoint": "sx127x.SX127x"
+    },
+    "SX128x SPI Decoder": {
+      "type": "HighLevelAnalyzer",
+      "entryPoint": "sx128x.SX128x"
+    }
+  }
+}
