@@ -230,6 +230,14 @@ SX127x_REG_VALUES = {
         (3, 1, ["CR?", "CR4/5", "CR4/6", "CR4/7", "CR4/8"]),
         (0, 0, ["EXPL HDR", "IMPL HDR"]),
     ],
+    SX127X_REG_PKT_SNR_VALUE: [
+        #(7, 0, {"name": "PKT SNR, dB", "eval":"(({0}&0x7F)-(128*({0}>>7)))/4", "store":"snr_last"})
+        (7, 0, {"name": "dB", "eval":"{:d}/4"})
+    ],
+    SX127X_REG_PKT_RSSI_VALUE: [
+        (7, 0, {"name": "dBm", "eval":"-157+{}"})
+    ],
+
 }
 
 def SX127x_Reg_Content(id):

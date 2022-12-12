@@ -51,6 +51,10 @@ class SX127x(HighLevelAnalyzer):
                     name += ": "
                 _eval = args.get("eval")
                 if _eval:
+                    if "d}" in _eval:
+                        # Convert to signed
+                        if value & (0x1 << (bits - 1)):
+                            value -= (1 << bits)
                     value = eval(_eval.format(value))
                 values = args.get("values")
                 if values:
@@ -128,6 +132,6 @@ class SX127x(HighLevelAnalyzer):
             result = self.parse_content(
                 data, last_reg, frame.start_time, frame.end_time)
             # Check if not FIFO write / read
-            if last_reg != const.SX127X_REG_FIFO:
+            if (last_reg & 0x7F) != const.SX127X_REG_FIFO:
                 self.__last_reg = last_reg + 1
         return result
