@@ -27,14 +27,14 @@ class SX127x(HighLevelAnalyzer):
         miso: bytes = frame.data["miso"]
         return mosi[0], miso[0],
 
-    def parse_content(data: int, last_reg: int, start_time: DateTime, end_time: DateTime):
+    def parse_content(self, data: int, last_reg: int, start_time: DateTime, end_time: DateTime):
         reg_name = const.SX127x_Reg_Name_get(last_reg)
-        content = const.SX127x_Reg_Name_get(last_reg)
+        content = const.SX127x_Reg_Content(last_reg)
         if not content:
             return AnalyzerFrame(
                 "value", start_time, end_time,
                 {'value': f"0x{data:02X}", "reg": reg_name})
-        bit_time = float(end_time - start_time) / 8
+        bit_time = GraphTimeDelta(float(end_time - start_time) / 8)
         ret = []
         for msb, lsb, args in content:
             value_mask = sum([0x1 << x for x in range(lsb, msb+1)])
@@ -67,12 +67,14 @@ class SX127x(HighLevelAnalyzer):
                         # Convert to signed
                         if value & (0x1 << (bits - 1)):
                             value -= (1 << bits)
-                    value = args.format(value)
+                    value = _fmt.format(value)
                 value = f"{name}{value}"
             else:
                 value = f"0x{value:02X}"
-            stime = start_time + (7 - msb) * bit_time
-            etime = end_time - lsb * bit_time
+            stime = start_time + bit_time * (7 - msb)
+            #etime = end_time - lsb * bit_time
+            # stime = start_time + bit_time * (bit_size - 1 - msb)
+            etime = stime + bit_time * (msb - lsb + 1)
             if reg_name:
                 res = AnalyzerFrame(
                     "value",
