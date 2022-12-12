@@ -21,6 +21,7 @@ class SX127x(HighLevelAnalyzer):
     def __init__(self) -> None:
         self.__reg_write: bool = False
         self.__last_reg: Union[None, int] = None
+        self.__frames_tmp: List = []
 
     def __int_get(self, frame):
         mosi: bytes = frame.data["mosi"]
@@ -34,8 +35,23 @@ class SX127x(HighLevelAnalyzer):
             return AnalyzerFrame(
                 "value", start_time, end_time,
                 {'value': f"0x{data:02X}", "reg": reg_name})
-        bit_time = GraphTimeDelta(float(end_time - start_time) / 8)
+        _bytes = ((content[0][0] + 8) // 8)
+        if 1 < _bytes:
+            frame = self.__frames_tmp
+            frame.append((start_time, end_time, data))
+            # Chekc if pieces are still needed
+            if len(frame) < _bytes:
+                return None
+            # Merge data
+            start_time, _, data = frame.pop(0)
+            end_time = frame[-1][1]
+            for _, _, val in frame:
+                data <<= 8
+                data += val
+            frame.clear()
         ret = []
+        bit_size = _bytes * 8
+        bit_time = GraphTimeDelta(float(end_time - start_time) / bit_size)
         for msb, lsb, args in content:
             value_mask = sum([0x1 << x for x in range(lsb, msb+1)])
             value = (data & value_mask) >> lsb
@@ -75,7 +91,7 @@ class SX127x(HighLevelAnalyzer):
                 value = f"{name}{value}"
             else:
                 value = f"0x{value:02X}"
-            stime = start_time + bit_time * (7 - msb)
+            stime = start_time + bit_time * (bit_size - 1 - msb)
             #etime = end_time - lsb * bit_time
             # stime = start_time + bit_time * (bit_size - 1 - msb)
             etime = stime + bit_time * (msb - lsb + 1)
@@ -106,6 +122,7 @@ class SX127x(HighLevelAnalyzer):
         if frame.type != "result":
             # Clear local variables
             self.__last_reg = None
+            self.__frames_tmp.clear()
             return None
 
         try:
@@ -132,6 +149,6 @@ class SX127x(HighLevelAnalyzer):
             result = self.parse_content(
                 data, last_reg, frame.start_time, frame.end_time)
             # Check if not FIFO write / read
-            if (last_reg & 0x7F) != const.SX127X_REG_FIFO:
+            if (last_reg & 0x7F) not in [const.SX127X_REG_FIFO, const.SX127X_REG_FRF_MSB]:
                 self.__last_reg = last_reg + 1
         return result

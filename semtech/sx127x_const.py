@@ -149,6 +149,9 @@ SX127x_REG_VALUES = {
         (6, 6, ["ACCESS_SHARED_REG_OFF", "ACCESS_SHARED_REG_ON"]),
         (2, 0, ["SLEEP", "STANDBY", "FSTX", "TX", "FSRX", "RX CONTINUOUS", "RX SIGNLE", "CAD"]),
     ],
+    SX127X_REG_FRF_MSB: [
+        (23, 0, {"name": "Freq", "fmt":"{0:f}MHz", "eval":f"{{}}*{SX127X_FREQ_STEP}/10**6"})
+    ],
     SX127X_REG_PA_CONFIG: [
         (7, 7, ["RFO", "BOOST"]),
         (6, 4, {"name": "MaxPower,dBm", "eval": "10.8+0.6*{}"}),
