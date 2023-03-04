@@ -147,6 +147,7 @@ SX127x_REG_VALUES = {
     SX127X_REG_OP_MODE : [
         (7, 7, ["FSP_OOK", "LORA"]),
         (6, 6, ["ACCESS_SHARED_REG_OFF", "ACCESS_SHARED_REG_ON"]),
+        (5, 3, {"name": "IGNORED"}),
         (2, 0, ["SLEEP", "STANDBY", "FSTX", "TX", "FSRX", "RX CONTINUOUS", "RX SIGNLE", "CAD"]),
     ],
     SX127X_REG_FRF_MSB: [
