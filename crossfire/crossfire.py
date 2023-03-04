@@ -4,6 +4,8 @@ from saleae.data.timing import GraphTimeDelta, GraphTime
 from enum import Enum
 import const
 import msp
+import struct
+from string import printable as printable_chars
 
 
 def __get_value(data: List[int], cnt: int):
@@ -147,39 +149,222 @@ def parser_flight_mode(data: List, res_gen, offset:int=3):
     return res
 
 def parser_ping(data: List, res_gen, offset:int=3):
-    res = [res_gen((offset, offset+len(data)-1), f"Ping message")]
+    offset, res = __parse_ext_header(data, res_gen, offset)
+    #res = [res_gen((offset, offset+len(data)-1), f"Ping message")]
     return res
 
 def parser_info(data: List, res_gen, offset:int=3):
     # dest + orig
     offset, res = __parse_ext_header(data, res_gen, offset)
     # size = len(data) - 12 - 2
-    size = 0
     name = "Name: "
-    for byte in data:
-        size += 1
-        if byte == 0:
-            break
-        name += chr(byte)
-    res.append(res_gen((offset, offset+size-1), name))
-    offset += size
-    res.append(res_gen((offset, offset+12-1), f"NULL"))
-    offset += 12
-    res.append(res_gen((offset, offset), f"Max MSP Parameter"))
+    size = data.index(0)
+    name += "".join([chr(byte) for byte in data[:size]])
+    res.append(res_gen((offset, offset + size), name))
+    offset += size + 1
+    del data[:size+1]
+    info = "SerialNo"
+    #info = struct.unpack('<I', bytes(data[:4]))
+    res.append(res_gen((offset, offset+3), info))
+    offset += 4
+    del data[:4]
+    info = "HW ver"
+    #info = struct.unpack('<I', bytes(data[:4]))
+    res.append(res_gen((offset, offset+3), info))
+    offset += 4
+    del data[:4]
+    info = "SW ver"
+    #info = struct.unpack('<I', bytes(data[:4]))
+    res.append(res_gen((offset, offset+3), info))
+    del data[:4]
+    offset += 4
+    res.append(res_gen((offset, offset), f"Param Count"))
     offset += 1
-    res.append(res_gen((offset, offset), f"Parameter version"))
+    res.append(res_gen((offset, offset), f"Param version"))
     return res
 
+junks_remaining = 0
+junks_type = 0xff
+junks_fiels_left = []
+junks_element_name = False
+converter = None
 def parser_parameter_setting_entry(data: List, res_gen, offset:int=3):
-    res = [res_gen((offset, offset+len(data)-1), f"Paramter setting entry message")]
+    global junks_remaining
+    global junks_type
+    global junks_fiels_left
+    global junks_element_name
+    global converter
+    offset, res = __parse_ext_header(data, res_gen, offset)
+    # 'Field ID' exists in every packet
+    data.pop(0)
+    res.append(res_gen((offset, offset), f"Field ID"))
+    offset += 1
+    # 'Junks Remaining' exists in every packet
+    _junks_remaining = data.pop(0)
+    res.append(res_gen((offset, offset), f"Junks Remain"))
+    offset += 1
+    if len(data) < 2:
+        return res # Empty frame (no more junks)
+    # Parse type first to see if this is the first junk
+    type_str, _junks_type = const.CRSF_VAL_TYPE_2_NAME(data[1])
+    if type_str:
+        junks_type = _junks_type
+        res.append(res_gen((offset, offset), "Parent"))
+        res.append(res_gen((offset+1, offset+1), type_str))
+        offset += 2
+        del data[:2]
+        junks_element_name = True
+    if junks_element_name:
+        # Element name is the next one
+        name = "Name: "
+        try:
+            size = data.index(0)
+            junks_element_name = False
+        except ValueError:
+            size = len(data) - 1
+        name += "".join([chr(byte) for byte in data[:size]])
+        res.append(res_gen((offset, offset+size), name))
+        offset += size + 1
+        data = data[(size + 1):]  # drop name + NULL
+
+    # Still some more data to process and it should be values
+    if data:
+        if junks_fiels_left:
+            fields = junks_fiels_left
+        else:
+            end = len(data) - 1
+            data_str = ""
+            fields = ["Value", "Min", "Max", "Default", "NULL"]
+            converter = None
+            if junks_type == const.CRSF_TEXT_SELECTION:
+                try:
+                    end = data.index(0)
+                except ValueError:
+                    # No end mark, include whole data
+                    pass
+                info = "".join([chr(byte) for byte in data[:end]])
+                end += 1
+                data_str = f'Options: "{info}"'
+                del data[:end]
+                if not data:
+                    fields = []
+                def _convert(_d):
+                    return _d.pop(0)
+                converter = _convert
+            elif junks_type in [const.CRSF_INFO, const.CRSF_STRING]:
+                end = data.index(0)
+                data_str = "".join([chr(byte) for byte in data[:end]])
+                end += 1
+                fields = []
+            elif junks_type == const.CRSF_FOLDER:
+                data_str = "Items"
+                fields = []
+            elif junks_type == const.CRSF_COMMAND:
+                end = 0
+                fields = ["Value", "Timeout"]
+                def _convert(_d):
+                    return _d.pop(0)
+                converter = _convert
+            elif junks_type == const.CRSF_UINT8:
+                def _convert(_d):
+                    return _d.pop(0)
+                converter = _convert
+            elif junks_type == const.CRSF_INT8:
+                def _convert(_d):
+                    _b = bytes(_d[:1])
+                    del _d[:1]
+                    return struct.unpack('>b', _b)[0]
+                converter = _convert
+            elif junks_type == const.CRSF_UINT16:
+                def _convert(_d):
+                    _b = bytes(_d[:2])
+                    del _d[:2]
+                    return struct.unpack('>H', _b)[0]
+                converter = _convert
+            elif junks_type == const.CRSF_INT16:
+                def _convert(_d):
+                    _b = bytes(_d[:2])
+                    del _d[:2]
+                    return struct.unpack('>h', _b)[0]
+                converter = _convert
+            elif junks_type == const.CRSF_UINT32:
+                def _convert(_d):
+                    _b = bytes(_d[:4])
+                    del _d[:4]
+                    return struct.unpack('>I', _b)[0]
+                converter = _convert
+            elif junks_type == const.CRSF_INT32:
+                def _convert(_d):
+                    _b = bytes(_d[:4])
+                    del _d[:4]
+                    return struct.unpack('>i', _b)[0]
+                converter = _convert
+            elif junks_type == const.CRSF_UINT64:
+                def _convert(_d):
+                    _b = bytes(_d[:8])
+                    del _d[:8]
+                    return struct.unpack('>Q', _b)[0]
+                converter = _convert
+            elif junks_type == const.CRSF_INT64:
+                def _convert(_d):
+                    _b = bytes(_d[:8])
+                    del _d[:8]
+                    return struct.unpack('>q', _b)[0]
+                converter = _convert
+            elif junks_type == const.CRSF_FLOAT:
+                def _convert(_d):
+                    _b = bytes(_d[:4])
+                    del _d[:4]
+                    return struct.unpack('>f', _b)[0]
+                converter = _convert
+            else:
+                data_str = f"Unknown type {junks_type}!"
+
+            if end and data_str:
+                res.append(res_gen((offset, offset+end-1), data_str))
+                offset += end
+
+        if data:
+            for field in fields:
+                try:
+                    value = converter(data)
+                except IndexError:
+                    junks_fiels_left.append(field)
+                    continue
+                res.append(res_gen((offset, offset), f"{field} {value}"))
+                offset += 1
+                junks_fiels_left = []
+            if data and junks_type == const.CRSF_COMMAND:
+                size = data.index(0)
+                info = "".join([chr(byte) for byte in data[:size]])
+                res.append(res_gen((offset, offset+size), info))
+                offset += size + 1
+
+    junks_remaining = _junks_remaining
     return res
 
 def parser_parameter_read(data: List, res_gen, offset:int=3):
-    res = [res_gen((offset, offset+len(data)-1), f"Paramter Read message")]
+    offset, res = __parse_ext_header(data, res_gen, offset)
+    _id = data.pop(0)
+    res.append(res_gen((offset, offset), f"Field ID ({_id})"))
+    offset += 1
+    data.pop(0)
+    res.append(res_gen((offset, offset), "Field Junk"))
     return res
 
 def parser_parameter_write(data: List, res_gen, offset:int=3):
-    res = [res_gen((offset, offset+len(data)-1), f"Paramter Write message")]
+    offset, res = __parse_ext_header(data, res_gen, offset)
+    _id = data.pop(0)
+    res.append(res_gen((offset, offset), f"Field ID ({_id})"))
+    offset += 1
+    _size = len(data)
+    if _size:
+        try:
+            _t = ['', 'b', 'h', 'i', 'q'][_size]
+            _val = struct.unpack(f'>{_t}', bytes(data[:_size]))[0]
+        except IndexError:
+            _val = ""
+        res.append(res_gen((offset, offset+_size-1), f"Value: {_val}"))
     return res
 
 def parser_command(data: List, res_gen, offset:int=3):
@@ -206,6 +391,17 @@ def parser_command(data: List, res_gen, offset:int=3):
             status = data.pop(0)
             res.append(res_gen((offset, offset), f"{['FAIL','SUCCESS'][bool(status)]}"))
             offset += 1
+    elif command == const.CRSF_COMMAND_SUBCMD_VTX:
+        val = data.pop(0)
+        res.append(res_gen((offset, offset), f"len? {val}"))
+        offset += 1
+        freq = (data.pop(0) << 8)
+        freq += data.pop(0)
+        res.append(res_gen((offset, offset + 1), f"({freq})"))
+        offset += 2
+        res.append(res_gen((offset, offset), "CMD_CRC"))
+        offset += 1
+
     return res
 
 def parser_parameter_msp_req(data: List, res_gen, offset:int=3, resp:bool=False):
@@ -494,7 +690,7 @@ class Crsf:
             else:
                 self.clear()
         elif self._state == self.State.LENGTH:
-            self._byte_len = self.res_get(frame, "LEN")
+            self._byte_len = self.res_get(frame, f"LEN {data}")
             if not self._output_missing_rc:
                 result.append(self._byte_len)
             if const.CRSF_FRAME_HEADER_BYTES <= data <= const.CRSF_PAYLOAD_SIZE_MAX:
