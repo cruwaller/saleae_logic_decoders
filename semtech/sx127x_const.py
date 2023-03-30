@@ -169,7 +169,7 @@ SX127x_REG_VALUES = {
     SX127X_REG_MODEM_CONFIG_2: [
         (7, 4, {"fmt": "SF{}"}),
         (3, 3, ["TX SINGLE", "TX_CONT"]),
-        (2, 2, ["CRC ON", "CRC OFF"]),
+        (2, 2, ["CRC OFF", "CRC ON"]),
         (1, 0, {"name": "RX TIMEOUT MSB"}),
     ],
     SX127X_REG_SYMB_TIMEOUT_LSB: [
