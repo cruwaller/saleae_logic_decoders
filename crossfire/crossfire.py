@@ -5,7 +5,6 @@ from enum import Enum
 import const
 import msp
 import struct
-from string import printable as printable_chars
 
 
 def __get_value(data: List[int], cnt: int):
@@ -214,6 +213,7 @@ def parser_parameter_setting_entry(data: List, res_gen, offset:int=3):
         offset += 2
         del data[:2]
         junks_element_name = True
+        junks_fiels_left = []  # reset state
     if junks_element_name:
         # Element name is the next one
         name = "Name: "
@@ -267,7 +267,10 @@ def parser_parameter_setting_entry(data: List, res_gen, offset:int=3):
                 converter = _convert
             elif junks_type == const.CRSF_UINT8:
                 def _convert(_d):
-                    return _d.pop(0)
+                    _b = bytes(_d[:1])
+                    del _d[:1]
+                    return struct.unpack('>B', _b)[0]
+                    # return _d.pop(0)
                 converter = _convert
             elif junks_type == const.CRSF_INT8:
                 def _convert(_d):
@@ -328,6 +331,11 @@ def parser_parameter_setting_entry(data: List, res_gen, offset:int=3):
             for field in fields:
                 try:
                     value = converter(data)
+                except struct.error:
+                    junks_fiels_left = []
+                    _junks_remaining = 0
+                    fields = []
+                    break
                 except IndexError:
                     junks_fiels_left.append(field)
                     continue
@@ -404,6 +412,38 @@ def parser_command(data: List, res_gen, offset:int=3):
 
     return res
 
+def parser_command_telemetry(data: List, res_gen, offset:int=3):
+    # dest + orig
+    offset, res = __parse_ext_header(data, res_gen, offset)
+    command = data.pop(0)
+    if command == 0x10:
+        command = "VTX"
+    elif command == 0x02:
+        command = "GPS"
+    elif command == 0x08:
+        command = "BATTERY"
+    elif command == 0x14:
+        command = "LINKSTAT"
+    res.append(res_gen((offset, offset), command))
+    offset += 1
+    if command == "VTX":
+        # dest + orig
+        offset, _res = __parse_ext_header(data, res_gen, offset)
+        res += _res
+        freq = (data.pop(0) << 8)
+        freq += data.pop(0)
+        res.append(res_gen((offset, offset + 1), f"{freq} MHz"))
+        offset += 2
+        res.append(res_gen((offset, offset), "??"))
+        offset += 1
+    elif command == "GPS":
+        pass
+    elif command == "BATTERY":
+        pass
+    elif command == "LINKSTAT":
+        pass
+    return res
+
 def parser_parameter_msp_req(data: List, res_gen, offset:int=3, resp:bool=False):
     offset, res = __parse_ext_header(data, res_gen, offset)
     # [0] header: flags + seq&0xF
@@ -462,6 +502,8 @@ CRSF_FRAME_PARSERS = {
     const.CRSF_FRAMETYPE_PARAMETER_READ: parser_parameter_read,
     const.CRSF_FRAMETYPE_PARAMETER_WRITE: parser_parameter_write,
     const.CRSF_FRAMETYPE_COMMAND: parser_command,
+
+    const.CRSF_FRAMETYPE_TLM_COMMAND: parser_command_telemetry,
 
     const.CRSF_FRAMETYPE_MSP_REQ: parser_parameter_msp_req,
     const.CRSF_FRAMETYPE_MSP_RESP: parser_parameter_msp_resp,
