@@ -429,7 +429,7 @@ SX128x_OPCODE_CONTENT = {
         [(7, 0, {"name": "PreambleLength"})],
         [(7, 0, {"name": "SyncWordLength"})],
         [(7, 0, {"name": "SyncWordMatch"})],
-        [(7, 0, {"name": "HeaderType", "values": {0:"FIXED", 1:"VARIABLE"}})],
+        [(7, 0, {"name": "HeaderType", "values": {0:"VARIABLE", 1:"FIXED"}})],
         [(7, 0, {"name": "PayloadLength"})],
         [(7, 0, {"name": "CrcLength"})],
         [(7, 0, {"name": "Whitening"})],
