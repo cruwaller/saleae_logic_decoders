@@ -723,6 +723,7 @@ class Crsf:
         if self._state == self.State.SYNC:
             if data == const.CRSF_ADDRESS_CRSF_RECEIVER or \
                     data == const.CRSF_ADDRESS_CRSF_TRANSMITTER or \
+                    data == const.CRSF_ADDRESS_RADIO_TRANSMITTER or \
                     data == const.CRSF_SYNC_BYTE or \
                     data == const.CRSF_ADDRESS_BROADCAST:
                 self._state = self.State.LENGTH
